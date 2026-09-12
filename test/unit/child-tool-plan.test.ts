@@ -167,6 +167,68 @@ describe("production launch path supplies hostAvailableBuiltins", () => {
 		assert.deepEqual(builtins, ["read", "bash"]);
 	});
 
+	it("given a replacement read provider, when planning a lazy reviewer, then read remains required", () => {
+		const hostAvailableBuiltins = getHostBuiltinToolNames({
+			getAllTools: () => [
+				{ name: "bash", sourceInfo: { source: "builtin" } },
+				{ name: "read", sourceInfo: { source: "extension", path: "/ext/read.ts" } },
+				{ name: "search_classes", sourceInfo: { source: "extension" } },
+			],
+		});
+		const plan = resolvePiLaunchToolPlan({
+			agentName: "delegate",
+			tools: ["read", "bash"],
+			requireReadTool: true,
+			hostAvailableBuiltins,
+		});
+		assert.deepEqual(hostAvailableBuiltins, ["bash", "read"]);
+		assert.deepEqual(plan.effectiveToolAllowlist, ["read", "bash"]);
+		assert.deepEqual(plan.requiredChildTools, ["read", "bash"]);
+		assert.deepEqual(plan.unavailableHostBuiltins, []);
+	});
+
+	for (const source of ["extension", "sdk"]) {
+		it(`given only ${source} replacements, when discovering builtins, then native capabilities are retained`, () => {
+			const names = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+			assert.deepEqual(getHostBuiltinToolNames({
+				getAllTools: () => [...names, "read", "search_classes"].map((name) => ({ name, sourceInfo: { source } })),
+			}), names);
+		});
+	}
+
+	it("given replacement read, when a ceiling forbids reading, then lazy review still fails closed", () => {
+		const hostAvailableBuiltins = getHostBuiltinToolNames({
+			getAllTools: () => [{ name: "read", sourceInfo: { source: "extension" } }],
+		});
+		assert.throws(() => resolvePiLaunchToolPlan({
+			agentName: "delegate",
+			tools: ["read"],
+			requireReadTool: true,
+			hostAvailableBuiltins,
+			capabilityCeiling: {
+				version: 1,
+				allowedTools: ["bash"],
+				denyExtensions: false,
+				sources: ["test"],
+			},
+		}), /Capability ceiling.*excludes required tool 'read'/);
+	});
+
+	it("given no read provider, when planning lazy review, then host discovery does not invent read", () => {
+		const hostAvailableBuiltins = getHostBuiltinToolNames({
+			getAllTools: () => [
+				{ name: "bash", sourceInfo: { source: "builtin" } },
+				{ name: "read_file", sourceInfo: { source: "extension" } },
+			],
+		});
+		assert.throws(() => resolvePiLaunchToolPlan({
+			agentName: "delegate",
+			tools: ["read"],
+			requireReadTool: true,
+			hostAvailableBuiltins,
+		}), /Host runtime does not provide required tool 'read' for agent 'delegate'/);
+	});
+
 	it("getHostBuiltinToolNames returns undefined on failure or empty results", () => {
 		const throwingPi = {
 			getAllTools: () => { throw new Error("Not available"); },

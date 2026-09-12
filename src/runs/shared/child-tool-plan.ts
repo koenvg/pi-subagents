@@ -299,23 +299,30 @@ export function resolvePermissionSystemExtension(): string | undefined {
 	return undefined;
 }
 
+/** Native names remain available when an extension or SDK provider replaces them. */
+const REPLACEABLE_BUILTIN_TOOL_NAMES = new Set([
+	"read", "bash", "powershell", "edit", "write", "grep", "find", "ls",
+]);
+
 /**
- * Extract the names of builtin tools the host provides. Use this to pass
- * `hostAvailableBuiltins` to `resolvePiLaunchToolPlan` so child tool plans
- * intersect declared agent tools with what the host actually supports.
+ * Discover host builtin capabilities by name, not only provider provenance.
+ * Replacements count only for native names; arbitrary extension/MCP tools do
+ * not become builtins or gain child authorization through this discovery.
  *
- * Returns `undefined` when builtin tool discovery fails or yields nothing,
- * so callers skip the intersection (fail-safe to allowing all declared tools).
- * This handles test mocks without proper tool registration and hosts whose
- * getAllTools() throws before extensions load.
+ * Returns undefined when discovery fails or finds no builtin capabilities,
+ * preserving the existing unknown-host behavior. Child registration and
+ * capability-ceiling checks remain authoritative.
  */
 export function getHostBuiltinToolNames(pi: Pick<ExtensionAPI, "getAllTools">): string[] | undefined {
 	try {
 		const builtins = pi
 			.getAllTools()
-			.filter((tool) => (tool.sourceInfo as { source?: string } | undefined)?.source === "builtin")
+			.filter((tool) =>
+				(tool.sourceInfo as { source?: string } | undefined)?.source === "builtin" ||
+				REPLACEABLE_BUILTIN_TOOL_NAMES.has(tool.name),
+			)
 			.map((tool) => tool.name);
-		return builtins.length > 0 ? builtins : undefined;
+		return builtins.length > 0 ? [...new Set(builtins)] : undefined;
 	} catch {
 		return undefined;
 	}
